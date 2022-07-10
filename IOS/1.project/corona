@@ -88,8 +88,8 @@ valid_date()
 
 	if [[ $valid == "false" ]]
 	then
-		error "Invalid date"
-		exit 0;
+		echo "Error: Invalid date" > "/dev/stderr"
+		exit 1;
   fi
 }
 
@@ -115,11 +115,11 @@ send_files()
 			cat $LOG_FILES
 		fi
 		if [ "$GZ_LOG_FILES" != "" ];
-			then
+		then
 			gzip -d -c $GZ_LOG_FILES
 		fi
 		if [ "$BZ2_LOG_FILES" != "" ];
-			then
+		then
 			bzip2 -d -c $BZ2_LOG_FILES
 		fi
 		if [ "$LOG_FILES" == "" ] && [ "$GZ_LOG_FILES" == "" ] && [ "$BZ2_LOG_FILES" == "" ]
@@ -156,9 +156,35 @@ date_before()
 }
 
 
+## @brief check if age is valid
+## @bug FIXED
+valid_age()
+{
+	awk -F, '
+	{
+		if ($3 != "" && ($3 % 1 != 0 || $3 < 0)) 
+		{
+			print "Error: Incorrect number: " $3 > "/dev/stderr"
+			exit 1 
+		}
+		else print $0;	
+	}'
+}
+
+
+## @brief age can't be negative or float value, dates have to be in calendar
+data_check()
+{
+	valid_date | valid_age 
+}
+
+
+## @brief age can't be negative or float value
+## @todo better method with core words sensitivity like id, age ...
 remove_headline()
 {
 	awk 'BEGIN{FS = ","} {if ($4 == "M" || $4 == "Z" || $4 == "") {print $0}} ' 
+	# awk for i in range ... for j  in string ....
 }
 
 
@@ -166,16 +192,17 @@ remove_headline()
 ## @todo FINISHED
 infected ()
 {
-	send_files | remove_headline | date_after | date_before | wc -l
+	send_files | remove_headline | valid_age | date_after | date_before | wc -l
+	# what did this do?
 	# cut -d, -f 4 | sort | uniq -c
 }
 
 
 ## @brief merge multiple files into one and print all uniqe lines
-## @todo
+## @todo IDK
 merge()
 {
-	send_files | remove_headline | uniq -u | tail -1
+	send_files | remove_headline | uniq -u
 }
 
 
@@ -282,6 +309,7 @@ age ()
     	}
     }'
 }
+
 
 ## @brief
 countries ()
