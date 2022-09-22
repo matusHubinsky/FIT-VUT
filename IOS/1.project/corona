@@ -1,0 +1,541 @@
+#!/usr/bin/bash
+
+export POSIXLY_CORRECT=yes
+export LC_ALL=C
+
+shopt -s lastpipe
+set +m
+
+## @brief help
+print_help()
+{
+	echo "
+	Usage:	corona [-h|--help]															
+		corona [FILTER...] [COMMAND...] [LOG[LOG...]...]
+
+	COMMANDS:
+	infected 		— prints number of infecter
+	merge 			— merge multiple files into one
+	gender 			— prints number of infected for each gender
+	age 			— prints out statistic of infected persons depending on age
+	daily 			— prints out statistic of infected persons for each day
+	monthly 		— prints out statistic of infected persons for each month
+	yearly 			— prints out statistic of infected persons for each year
+	countries 		— prints out statistic of infected persons for each countrie
+	districts 		— prints out statistic of infected persons for each district
+	regions 		— prints out statistic of infected persons for each region
+
+	FILTERS:
+	-a DATETIME 		— after:  [YYYY-MM-DD]
+	-b DATETIME 		— before: [YYYY-MM-DD]
+	-g GENDER 		— [M/Z].
+	-s WIDTH 		— prints out ASCII graph made of '#', WIDTH means number of particles for maximum value
+	-h HELP 		— prints out manual
+    "
+}
+
+
+## @brief check if date is valid
+valid_date()
+{
+	local valid=false
+	local DATE="$1"
+	if [[ $DATE =~ [0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9] ]];
+	then
+		local y=${DATE:0:4}
+		local m=${DATE:5:2}
+		local d=${DATE:8:2}
+		if [[ $m -ge 01 ]] && [[ $m -le 12 ]] && [[ $d -ge 01 ]] && [[ $d -le 31 ]];
+		then
+			if [[ $m == "01" ]] || [[ $m == "03" ]] || [[ $m == "05" ]] || [[ $m == "07" ]] || [[ $m == "08" ]] || [[ $m == "10" ]] || [[ $m == "12" ]];
+			then
+				if [[ $d -ge 01 ]] && [[ $d -le 31 ]];
+				then
+					valid=true
+				else
+					valid=false
+				fi
+			elif [[ $m == "04" ]] || [[ $m == "06" ]] || [[ $m == "09" ]] || [[ $m == "11" ]];
+				then
+					if [[ $d -ge 01 ]] && [[ $d -le 30 ]];
+					then
+						valid=true
+					else
+						valid=false
+					fi
+			else
+			    if [[ $($y % 4) == 0 ]] && [[ $($y % 100) != 0 ]] || [[ $($y % 400) == 0 ]];
+        		then
+          			if [[ $d -ge 01 ]] && [[ $d -le 29 ]];
+          			then
+            			valid=true
+            		else
+            			valid=false
+          			fi
+        		elif [[ $d -ge 01 ]] && [[ $d -le 28 ]];
+          		then
+            		valid=true
+        		else
+        			valid=false
+        		fi
+			fi
+		else
+			valid=false
+		fi
+	else
+		valid=false
+	fi
+
+	if [[ $valid == "false" ]]
+	then
+		echo "Error: Invalid date" > "/dev/stderr"
+		exit 1;
+  fi
+}
+
+
+## @brief send files to next pipe
+send_files()
+{
+	if [ -f "$LOG_FILES" ] && [ "$LOG_FILES" != "" ]
+	then
+		error "The file doen't exists"
+		exit 0
+	elif [ -f "$GZ_LOG_FILES" ] && [ "$GZ_LOG_FILES" != "" ]
+	then
+		error "The file doen't exists"
+		exit 0
+	elif [ -f "$BZ2_FILES" ] && [ "$BZ2_LOG_FILES" != "" ]
+	then
+		error "The file doen't exists"
+		exit 0
+	else
+		if [ "$LOG_FILES" != "" ];
+		then
+			cat $LOG_FILES
+		fi
+		if [ "$GZ_LOG_FILES" != "" ];
+		then
+			gzip -d -c $GZ_LOG_FILES
+		fi
+		if [ "$BZ2_LOG_FILES" != "" ];
+		then
+			bzip2 -d -c $BZ2_LOG_FILES
+		fi
+		if [ "$LOG_FILES" == "" ] && [ "$GZ_LOG_FILES" == "" ] && [ "$BZ2_LOG_FILES" == "" ]
+		then
+			cat $* }
+		fi
+	fi
+}
+
+
+## @brief prints all collums AFTER specific date 
+date_after ()
+{
+	if [[ $AFTER_DATE =~ [0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9] ]];
+	then 
+		awk -v after="$AFTER_DATE" -F, '{split($2, cur, "-"); split(after, arr, "-"); 
+		if (cur[1] >= arr[1] && cur[2] >= arr[2] && cur[3] >= arr[3]) print }'
+	else 
+		awk '{print}'
+	fi
+}
+
+
+## @brief prints all collums BEFORE specific date
+date_before()
+{
+	if [[ $AFTER_DATE =~ [0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9] ]];
+	then 
+		awk -v after="$BEFORE_DATE" -F, '{split($2, cur, "-"); split(after, arr, "-"); 
+		if (cur[1] <= arr[1] && cur[2] <= arr[2] && cur[3] <= arr[3]) print }'	
+	else 
+		awk '{print}'
+	fi
+}
+
+
+## @brief check if age is valid
+## @bug FIXED
+valid_age()
+{
+	awk -F, '
+	{
+		if ($3 != "" && ($3 % 1 != 0 || $3 < 0)) 
+		{
+			print "Error: Incorrect number: " $3 > "/dev/stderr"
+			exit 1 
+		}
+		else print $0;	
+	}'
+}
+
+
+## @brief age can't be negative or float value, dates have to be in calendar
+data_check()
+{
+	valid_date | valid_age 
+}
+
+
+## @brief age can't be negative or float value
+## @todo better method with core words sensitivity like id, age ...
+remove_headline()
+{
+	awk 'BEGIN{FS = ","} {if ($4 == "M" || $4 == "Z" || $4 == "") {print $0}} ' 
+	# awk for i in range ... for j  in string ....
+}
+
+
+## @brief problem with printing zero if there is nothing
+## @todo FINISHED
+infected ()
+{
+	send_files | remove_headline | valid_age | date_after | date_before | wc -l
+	# what did this do?
+	# cut -d, -f 4 | sort | uniq -c
+}
+
+
+## @brief merge multiple files into one and print all uniqe lines
+## @todo IDK
+merge()
+{
+	send_files | remove_headline | uniq -u
+}
+
+
+## @brief print number for each gender
+gender ()
+{
+	if [[ $WIDTH == "" ]] && [[ $FILTER == '-s' ]]; then
+		WIDTH=100000
+	fi
+
+	send_files | uniq -u | tail -n +2 | date_after | date_before | \
+	awk -v gender="$GENDER" -F, '$4 == gender || !gender {print}' | \
+	awk -v wid=$WIDTH 'BEGIN{FS=","; m=0; z=0; none=0} {if ($4=="Z")z++; else if ($4=="M")m++; else none++} 
+	END{
+		if (wid == "") {print "M: "m; print "Z: "z; if(none!=0) print "None: "none;}
+		else { max = 0; if (m > z) max = m; else max = z; pomer = int(max / wid);	
+		printf "M: "; for (i = 0; i < int(m / pomer); i++) { printf "#" } print '\n';
+		printf "Z: "; for (i = 0; i < int(z / pomer); i++) { printf "#" } print '\n'; }
+	}'
+}
+
+
+## @brief print number for each age group
+age ()
+{
+	if [[ $WIDTH == "" ]] && [[ $FILTER == '-s' ]]; then
+		WIDTH=10000
+	fi
+	send_files | \
+	awk -v after="$AFTER_DATE" -v before="$BEFORE_DATE" -v gender="$GENDER" -v wid=$WIDTH \
+	'BEGIN{FS = ","; for(i = 0; i < 12; i++) age[i]=0;}
+	{
+		if ($3 == "vek") {next};
+		valid = 1;
+		if (gender != "")
+		{
+			if ($4 == gender) valid = 1;
+			else valid = 0;
+		}
+		if (after != "" && valid == 1)
+		{
+  			split($2, cur, "-"); split(after, arr, "-");
+			if (cur[1] >= arr[1] && cur[2] >= arr[2] && cur[3] >= arr[3]) valid = 1;
+			else valid = 0;
+		}
+		if (before != "" && valid == 1)
+		{
+  			split($2, cur, "-"); split(before, arr, "-");
+			if (cur[1] <= arr[1] && cur[2] <= arr[2] && cur[3] <= arr[3]) valid = 1;
+			else valid = 0;
+		}
+        if (valid == 1)
+        {
+            if ($3 >= 0 && $3 <= 5) age[0]++;
+            else if ($3 >= 6 && $3 <= 15) age[1]++;
+            else if ($3 >= 16 && $3 <= 25) age[2]++;
+            else if ($3 >= 26 && $3 <= 35) age[3]++;
+            else if ($3 >= 36 && $3 <= 45) age[4]++;
+            else if ($3 >= 46 && $3 <= 55) age[5]++;
+            else if ($3 >= 56 && $3 <= 65) age[6]++;
+            else if ($3 >= 66 && $3 <= 75) age[7]++;
+            else if ($3 >= 76 && $3 <= 85) age[8]++;
+            else if ($3 >= 86 && $3 <= 95) age[9]++;
+            else if ($3 >= 96 && $3 <= 105) age[10]++;
+            else if ($3 >= 105) age[11]++;
+            else age[12]++;
+        }
+    }
+    END {
+    	if (wid != "")
+    	{
+    		max = 0;
+    		for (i in age) if (age[i] > max) max = age[i];
+    		pomer = max / wid;
+	    	printf "0-5   : " ; for (j = 0; j < int(age[0] / pomer); j++) { printf "#" } ; print '\n';
+	        printf "6-15  : " ; for (j = 0; j < int(age[1] / pomer); j++) { printf "#" } ; print '\n';
+	        printf "16-25 : " ; for (j = 0; j < int(age[2] / pomer); j++) { printf "#" } ; print '\n';
+	        printf "26-35 : " ; for (j = 0; j < int(age[3] / pomer); j++) { printf "#" } ; print '\n';
+	        printf "36-45 : " ; for (j = 0; j < int(age[4] / pomer); j++) { printf "#" } ; print '\n';
+	        printf "46-55 : " ; for (j = 0; j < int(age[5] / pomer); j++) { printf "#" } ; print '\n';
+	        printf "56-65 : " ; for (j = 0; j < int(age[6] / pomer); j++) { printf "#" } ; print '\n';
+	        printf "66-75 : " ; for (j = 0; j < int(age[7] / pomer); j++) { printf "#" } ; print '\n';
+	        printf "76-85 : " ; for (j = 0; j < int(age[8] / pomer); j++) { printf "#" } ; print '\n';
+	        printf "86-95 : " ; for (j = 0; j < int(age[9] / pomer); j++) { printf "#" } ; print '\n';
+	        printf "96-105: " ; for (j = 0; j < int(age[10] / pomer); j++) { printf "#" } ; print '\n';
+	        printf ">105  : " ; for (j = 0; j < int(age[11] / pomer); j++) { printf "#" } ; print '\n';
+	        printf "None  : " ; for (j = 0; j < int(age[12] / pomer); j++) { printf "#" } ; print '\n';
+    	}
+    	else
+    	{
+	    	print "0-5   : " age[0]
+	        print "6-15  : " age[1]
+	        print "16-25 : " age[2]
+	        print "26-35 : " age[3]
+	        print "36-45 : " age[4]
+	        print "46-55 : " age[5]
+	        print "56-65 : " age[6]
+	        print "66-75 : " age[7]
+	        print "76-85 : " age[8]
+	        print "86-95 : " age[9]
+	        print "96-105: " age[10]
+	        print ">105  : " age[11]
+	        print "None  : " age[12]
+    	}
+    }'
+}
+
+
+## @brief
+countries ()
+{
+	if [[ $WIDTH == "" ]] && [[ $FILTER == '-s' ]]; then
+		WIDTH=100
+	fi
+
+	send_files | tail -n +2 | date_after | date_before | \
+	awk -v gender="$GENDER" -F, '$4 == gender || !gender {print}' | \
+	awk -v wid=$WIDTH 'BEGIN{FS=",";} {if($8 == "") n++; else crr[$8]++;}  
+    END{
+        if (wid == "") {for (i in crr) print i ": " crr[i]; print "None: " n ; }
+        else
+        {
+            max = 0; for (i in crr) if (crr[i] > max) max = crr[i]; pomer = max / wid;
+            for (i in crr)
+            {
+                printf i": ";
+                for (j = 0; j < int(crr[i] / pomer); j++) { printf "#" } ;
+                print " ";
+            }
+        }
+	}' | \
+	sort -n | sed '/None: /{h;d;};${p;g;};' 
+	
+	# removed none idk why
+	# NONE shut be last 
+}
+
+## @brief
+regions ()
+{
+	if [[ $WIDTH == "" ]] && [[ $FILTER == '-s' ]]; then
+		WIDTH=10000
+	fi
+	
+	send_files | tail -n +2 | date_after | date_before | \
+	awk -v gender="$GENDER" -F, '$4 == gender || !gender {print}' | \
+	awk 'BEGIN{FS=","; m=0; z=0} {crr[$6]++} END{for (i in crr) print i ": " crr[i]; print "None: " n ;}' | \
+	sort -n
+}
+
+districts ()
+{
+	if [[ $WIDTH == "" ]] && [[ $FILTER == '-s' ]]; then
+		WIDTH=1000
+	fi
+	send_files | \
+
+	send_files | tail -n +2 | date_after | date_before | \
+	awk -v gender="$GENDER" -F, '$4 == gender || !gender {print}' | \
+	awk 'BEGIN{FS=","; m=0; z=0} {crr[$5]++} END{for (i in crr) print i ": " crr[i]; print "None: " n ;}' | \
+	sort -n
+}
+
+daily ()
+{
+	if [[ $WIDTH == "" ]] && [[ $FILTER == '-s' ]]; then
+		WIDTH=500
+	fi
+
+	send_files | tail -n +2 | date_after | date_before | \
+	awk -v gender="$GENDER" -F, '$4 == gender || !gender {print}' | \
+	awk 'BEGIN{FS=","; m=0; z=0} {crr[$2]++} END{for (i in crr) print i ": " crr[i]; print "None: " n ;}' | \
+	sort -n
+}
+
+monthly ()
+{
+	if [[ $WIDTH == "" ]] && [[ $FILTER == '-s' ]]; then
+		WIDTH=10000
+	fi
+	
+	send_files | tail -n +2 | date_after | date_before | \
+	awk -v gender="$GENDER" -F, '$4 == gender || !gender {print}' | \
+	awk 'BEGIN{FS="[,-]"; m=0; z=0} {crr[$6"-"$7]++} END{for (i in crr) print i ": " crr[i]; print "None: " n ;}' | \
+	sort -n
+}
+
+yearly ()
+{
+	if [[ $WIDTH == "" ]] && [[ $FILTER == '-s' ]]; then
+		WIDTH=100000
+	fi
+
+	send_files | tail -n +2 | date_after | date_before | \
+	awk -v gender="$GENDER" -F, '$4 == gender || !gender {print}' | \
+	awk 'BEGIN{FS="[,-]"; m=0; z=0} {crr[$6]++} END{for (i in crr) print i ": " crr[i]; print "None: " n ;}' | \
+	sort -n
+}
+
+
+COMMAND=""
+FILTER=""
+WIDTH=""
+
+CURRENT_DATE=$(date +"%Y-%m-%d")
+AFTER_DATE=""
+BEFORE_DATE=""
+
+LOCATION=""
+LOG_FILES=""
+GZ_LOG_FILES=""
+BZ2_LOG_FILES=""
+
+# get switches
+while [ "$#" -gt 0 ]
+do
+	case "$1" in
+	-a)
+		FILTER=$1
+		AFTER_DATE="$2"
+		valid_date $AFTER_DATE
+		shift
+		shift
+		;;
+	-b)
+		FILTER=$1
+		BEFORE_DATE="$2"
+		valid_date $BEFORE_DATE
+		shift
+		shift
+		;;
+	-g)
+		FILTER=$1
+		GENDER="$2"
+		shift
+		shift
+		;;
+	-h)
+		print_help
+		exit 0
+		;;
+	-s)
+		FILTER="$1"
+		WIDTH="$2"
+		
+		if [[ $WIDTH =~ ^[0-9]+$ ]]; then
+			shift
+		else
+			case "$WIDTH" in
+				infected | merge | gender | age | daily | monthly | yearly | countries | districts | regions)
+					COMMAND=$WIDTH
+					WIDTH=""
+					shift
+					;;
+				*.csv)
+					LOG_FILES="$LOG_FILES $WIDTH"
+					WIDTH=""
+					shift
+					;;
+				*.gz)
+					GZ_LOG_FILES="$GZ_LOG_FILES $WIDTH"
+					WIDTH=""
+					shift
+					;;
+				*.bz2)
+					BZ2_LOG_FILES="$BZ2_LOG_FILES $WIDTH"
+					WIDTH=""
+					shift
+					;;
+			esac
+		fi
+		shift
+		;;
+	infected | merge | gender | age | daily | monthly | yearly | countries | districts | regions)
+		COMMAND=$1
+		shift
+		;;
+	*.csv)
+		LOG_FILES="$LOG_FILES $1"
+		shift
+		;;
+	*.gz)
+		GZ_LOG_FILES="$GZ_LOG_FILES $1"
+		shift
+		;;
+	*.bz2)
+		BZ2_LOG_FILES="$BZ2_LOG_FILES $1"
+		shift
+		;;
+	*)
+		error "Invalid Symbol"
+		exit 0
+	esac
+done
+
+# command separation
+case "$COMMAND" in
+	infected)
+		infected
+		;;
+	merge)
+		merge
+		;;
+	gender)
+		gender
+		;;
+	age)
+		age
+		;;
+	daily)
+		daily
+		;;
+	monthly)
+		monthly
+		;;
+	yearly)
+		yearly
+		;;
+	countries)
+		countries
+		;;
+	districts)
+		districts
+		;;
+	regions)
+		regions
+		;;
+	*)
+		if [ "$1" == "" ] || [ "$1" == " " ]
+			then
+			merge
+		else
+			error "Unknown COMMAND"
+			exit 0
+		fi
+esac
