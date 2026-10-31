@@ -1,6 +1,6 @@
 # FIT-VUT
 
-All the school projects from Faculty of Information Technology at Brno University of Technology
+All the school projects from Faculty of Information Technology at Brno University of Technology.
 
 # TODO
 ## 1bit
@@ -21,15 +21,15 @@ All the school projects from Faculty of Information Technology at Brno Universit
 - [ ] ISS
 ### 4sem
 - [ ] IDS
-- [ ] IOS
+- [ ] IOS (again)
 - [ ] IPK
-- [ ] ISU
+- [ ] ISU (practice makes perfect)
 - [ ] IVS
 - [ ] IZU
 ## 3bit
 ### 5sem
 - [ ] IIS
-- [ ] ISS
+- [ ] ISS (one more time)
 - [ ] ITU
 ### 6sem
 - [ ] NULL
